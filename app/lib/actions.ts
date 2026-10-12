@@ -3,6 +3,7 @@ import { z } from "zod";
 import postgres from "postgres";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { safe } from "./safe.utils";
 
 const INVOICES_PATHNAME = "/dashboard/invoices";
 
@@ -31,10 +32,15 @@ export async function createInvoice(formData: FormData) {
     date,
   } = ZInvoiceFormData.parse(invoiceFormData);
 
-  await sql`
+  const [, sqlError] = await safe(sql`
     INSERT INTO invoices (customer_id, amount, status, date)
     VALUES (${customerId}, ${amountInCents}, ${status}, ${date})
-  `;
+  `);
+
+  if (sqlError) {
+    console.log(sqlError);
+    return { message: "[SQL Error]: Failed to create invoice." };
+  }
 
   revalidatePath(INVOICES_PATHNAME);
 
@@ -50,11 +56,16 @@ export async function updateInvoice(id: string, formData: FormData) {
     status,
   } = ZInvoiceFormData.parse(invoiceFormData);
 
-  await sql`
+  const [, sqlError] = await safe(sql`
     UPDATE invoices
     SET customer_id = ${customerId}, amount = ${amountInCents}, status = ${status}
     WHERE id = ${id}
-  `;
+  `);
+
+  if (sqlError) {
+    console.log(sqlError);
+    return { message: "[SQL Error]: Failed to update invoice." };
+  }
 
   revalidatePath(INVOICES_PATHNAME);
   redirect(INVOICES_PATHNAME);
@@ -63,6 +74,11 @@ export async function updateInvoice(id: string, formData: FormData) {
 export async function deleteInvoice(id: string) {
   const { id: ID } = ZInvoiceSchema.pick({ id: true }).parse({ id });
 
-  await sql`DELETE FROM invoices WHERE id = ${ID}`;
+  const [, sqlError] = await safe(sql`DELETE FROM invoices WHERE id = ${ID}`);
+
+  if (sqlError) {
+    console.log(sqlError);
+    return { message: "[SQL Error]: Failed to delete invoice." };
+  }
   revalidatePath(INVOICES_PATHNAME);
 }
