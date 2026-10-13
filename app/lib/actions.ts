@@ -9,28 +9,71 @@ const INVOICES_PATHNAME = "/dashboard/invoices";
 
 const sql = postgres(process.env.POSTGRES_URL!, { ssl: "require" });
 
+// ---
+export type TFS_createInvoice = {
+  errors?: {
+    customerId?: string[];
+    amount?: string[];
+    status?: string[];
+  };
+  message?: string | null;
+};
+// ---
+
 const ZInvoiceSchema = z.object({
   id: z.string(),
-  customerId: z.string(),
+  customerId: z.string({
+    invalid_type_error: "Please select a customer.",
+    message: "Please select a customer.",
+  }),
   amount: z.coerce
     .number()
-    .positive("Please, enter a positive amount.")
+    .positive({
+      message: "Please enter a positive amount (Greater than Zero).",
+    })
     .transform((val) => val * 100),
-  status: z.enum(["pending", "paid"]),
+  status: z.enum(["pending", "paid"], {
+    invalid_type_error: "Please select an invoice status.",
+    message: "Please select an invoice status.",
+  }),
   date: z.string().default(new Date().toISOString().split("T")[0]),
 });
 
 const ZInvoiceFormData = ZInvoiceSchema.omit({ id: true });
 
-export async function createInvoice(formData: FormData) {
+// ---
+
+export async function createInvoice(
+  prevState: TFS_createInvoice,
+  formData: FormData,
+) {
+  await new Promise((resolve) =>
+    setTimeout(() => {
+      resolve(true);
+    }, 5000),
+  );
   const invoiceFormData = Object.fromEntries(formData.entries());
+
+  const {
+    success: invoiceValidationSuccess,
+    data: invoiceValidatedData,
+    error: invoiceValidationError,
+  } = ZInvoiceFormData.safeParse(invoiceFormData);
+
+  if (!invoiceValidationSuccess)
+    return {
+      errors: invoiceValidationError.flatten().fieldErrors,
+      message:
+        "Failed to create invoice. " +
+        invoiceValidationError.flatten().formErrors.join(", "),
+    };
 
   const {
     amount: amountInCents,
     customerId,
     status,
     date,
-  } = ZInvoiceFormData.parse(invoiceFormData);
+  } = invoiceValidatedData;
 
   const [, sqlError] = await safe(sql`
     INSERT INTO invoices (customer_id, amount, status, date)
@@ -47,14 +90,27 @@ export async function createInvoice(formData: FormData) {
   redirect(INVOICES_PATHNAME);
 }
 
-export async function updateInvoice(id: string, formData: FormData) {
+export type TFS_editInvoice = TFS_createInvoice;
+export async function updateInvoice(
+  id: string,
+  prevSate: TFS_editInvoice,
+  formData: FormData,
+) {
   const invoiceFormData = Object.fromEntries(formData.entries());
 
   const {
-    customerId,
-    amount: amountInCents,
-    status,
-  } = ZInvoiceFormData.parse(invoiceFormData);
+    success: invoiceValidationSuccess,
+    data: invoiceValidatedData,
+    error: invoiceValidationError,
+  } = ZInvoiceFormData.safeParse(invoiceFormData);
+  // ---
+  if (!invoiceValidationSuccess)
+    return {
+      errors: invoiceValidationError.flatten().fieldErrors,
+      message: "Failed to update invoice.",
+    };
+  // ---
+  const { customerId, amount: amountInCents, status } = invoiceValidatedData;
 
   const [, sqlError] = await safe(sql`
     UPDATE invoices
